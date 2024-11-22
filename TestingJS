@@ -1,0 +1,13 @@
+async function getColumnNames(entityLogicalName) {
+    const apiUrl = `/api/data/v9.2/EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes?$select=LogicalName`;
+    const response = await Xrm.WebApi.retrieveMultipleRecords("EntityDefinitions", apiUrl);
+    return response.entities.map(attr => attr.LogicalName);
+}
+
+async function generateFormattedColumns(entityLogicalName) {
+    const columnNames = await getColumnNames(entityLogicalName);
+    const formattedJSON = formatColumns(columnNames);
+    console.log(formattedJSON);
+}
+
+generateFormattedColumns("your_entity_logical_name");
