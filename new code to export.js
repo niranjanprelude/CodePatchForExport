@@ -1,71 +1,29 @@
-async function exportDataverseDataToCSV(fetchXml, entityLogicalName) {
-    const MAX_PAGE_SIZE = 5000; // Dataverse API page size limit
+async function fetchLargeDataset(fetchXml, entityLogicalName, pageSize = 5000) {
     let allRecords = [];
+    let pageNumber = 1;
     let pagingCookie = null;
-    let fetchXmlWithPaging = fetchXml;
 
-    do {
-        // Add paging attributes if pagingCookie is present
-        if (pagingCookie) {
-            fetchXmlWithPaging = fetchXml.replace(
-                '</fetch>',
-                `<fetchxmlpagingcookie="${pagingCookie}" pagingcookie="${pagingCookie}" page="2" count="${MAX_PAGE_SIZE}"></fetch>`
-            );
-        }
+    while (true) {
+        // Modify FetchXML to include paging parameters
+        let fetchXmlWithPaging = fetchXml.replace("</fetch>", `<fetch page="${pageNumber}" count="${pageSize}"${pagingCookie ? ` paging-cookie="${pagingCookie}"` : ""}></fetch>`);
 
-        const result = await Xrm.WebApi.retrieveMultipleRecords(entityLogicalName, "?fetchXml=" + encodeURIComponent(fetchXmlWithPaging));
+        // Fetch data using Xrm.WebApi
+        const result = await Xrm.WebApi.retrieveMultipleRecords(entityLogicalName, `?fetchXml=${encodeURIComponent(fetchXmlWithPaging)}`);
 
-        // Add the current set of records to the allRecords array
+        // Append fetched records to allRecords
         allRecords = allRecords.concat(result.entities);
 
-        // Get the paging cookie from the response
-        pagingCookie = result["@Microsoft.Dynamics.CRM.fetchxmlpagingcookie"] || null;
-    } while (pagingCookie);
+        // Check if more pages are available
+        pagingCookie = result["@Microsoft.Dynamics.CRM.fetchxmlpagingcookie"];
+        if (!pagingCookie) break;
 
-    if (allRecords.length === 0) {
-        alert("No records found.");
-        return;
+        pageNumber++;
     }
 
-    // Format records as CSV
-    const csvFiles = formatDataToCSV(allRecords);
-
-    // Trigger download of CSV files
-    csvFiles.forEach((csv, index) => {
-        downloadCSV(csv, `dataverse_export_part_${index + 1}.csv`);
-    });
-
-    alert("Export completed!");
+    return allRecords;
 }
 
-function formatDataToCSV(records) {
-    const CHUNK_SIZE = 5000; // Split into smaller files if the number of records is too large
-    const headers = Object.keys(records[0]);
-    const chunks = [];
-
-    for (let i = 0; i < records.length; i += CHUNK_SIZE) {
-        const chunk = records.slice(i, i + CHUNK_SIZE);
-        const rows = chunk.map(record => {
-            return headers.map(header => `"${record[header] || ""}"`).join(",");
-        });
-        const csvContent = [headers.join(","), ...rows].join("\n");
-        chunks.push(csvContent);
-    }
-
-    return chunks;
-}
-
-function downloadCSV(csvContent, fileName) {
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-
-// Example FetchXML to fetch all attributes of "contacts"
+// Example FetchXML for "contacts" entity
 const fetchXml = `
 <fetch mapping="logical">
   <entity name="contact">
@@ -74,5 +32,12 @@ const fetchXml = `
 </fetch>
 `;
 
-// Call the function to export data (replace "contacts" with the logical name of your table)
-exportDataverseDataToCSV(fetchXml, "contacts");
+// Call the function to fetch records
+fetchLargeDataset(fetchXml, "contacts")
+    .then(records => {
+        console.log("Total records fetched:", records.length);
+        console.log(records);
+    })
+    .catch(error => {
+        console.error("Error fetching records:", error);
+    });
