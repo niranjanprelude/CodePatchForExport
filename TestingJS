@@ -1,13 +1,74 @@
-async function getColumnNames(entityLogicalName) {
-    const apiUrl = `/api/data/v9.2/EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes?$select=LogicalName`;
-    const response = await Xrm.WebApi.retrieveMultipleRecords("EntityDefinitions", apiUrl);
-    return response.entities.map(attr => attr.LogicalName);
+async function fetchAllRecords() {
+    const fetchXml = `
+        <fetch>
+            <all-attributes />
+        </fetch>
+    `;
+    const apiUrl = "https://your-org.api.crm.dynamics.com/api/data/v9.0/your_entity_name";
+    let records = [];
+    let pagingCookie = null;
+    let moreRecords = true;
+
+    while (moreRecords) {
+        let url = `${apiUrl}?fetchXml=${encodeURIComponent(fetchXml)}`;
+        if (pagingCookie) {
+            url += `&pagingcookie=${encodeURIComponent(pagingCookie)}`;
+        }
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'OData-MaxVersion': '4.0',
+                'OData-Version': '4.0',
+                'Prefer': 'odata.include-annotations="*"',
+                'Authorization': 'Bearer ' + YOUR_ACCESS_TOKEN
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            records = records.concat(data.value);
+            pagingCookie = data['@odata.nextLink'] ? data['@odata.nextLink'].split('pagingcookie=')[1] : null;
+            moreRecords = !!pagingCookie;
+        } else {
+            console.error('Error fetching data:', response.statusText);
+            moreRecords = false;
+        }
+    }
+
+    return records;
 }
 
-async function generateFormattedColumns(entityLogicalName) {
-    const columnNames = await getColumnNames(entityLogicalName);
-    const formattedJSON = formatColumns(columnNames);
-    console.log(formattedJSON);
+function convertToCSV(records) {
+    const csvRows = [];
+    const headers = Object.keys(records[0]);
+    csvRows.push(headers.join(','));
+
+    for (const record of records) {
+        const values = headers.map(header => JSON.stringify(record[header] || ''));
+        csvRows.push(values.join(','));
+    }
+
+    return csvRows.join('\n');
 }
 
-generateFormattedColumns("your_entity_logical_name");
+function downloadCSV(csv, filename) {
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('hidden', '');
+    a.setAttribute('href', url);
+    a.setAttribute('download', filename);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
+async function exportDataToCSV() {
+    const records = await fetchAllRecords();
+    const csv = convertToCSV(records);
+    downloadCSV(csv, 'dataverse_records.csv');
+}
+
+exportDataToCSV();
