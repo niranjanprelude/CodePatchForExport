@@ -2,18 +2,35 @@ let
     // Step 1: Load the initial table
     Source = <Your Dataverse Source>,  // Replace with your data source
 
-    // Step 2: Get a list of columns in the table
+    // Step 2: Get a list of all columns
     Columns = Table.ColumnNames(Source),
 
-    // Step 3: Identify columns to expand (those with "_name" or "_label" suffix)
+    // Step 3: Identify lookup and choice columns (ends with "_name" or "_label")
     LookupColumns = List.Select(Columns, each Text.EndsWith(_, "_name")),
     ChoiceColumns = List.Select(Columns, each Text.EndsWith(_, "_label")),
 
-    // Step 4: Expand these columns
-    ExpandedLookups = Table.TransformColumns(Source, List.Transform(LookupColumns, each {_, Text.Lower})),
-    ExpandedChoices = Table.TransformColumns(ExpandedLookups, List.Transform(ChoiceColumns, each {_, Text.Lower})),
+    // Step 4: Get parent columns for lookup and choice (GUID and Key columns)
+    LookupParentColumns = List.Transform(LookupColumns, each Text.BeforeDelimiter(_, "_")),
+    ChoiceParentColumns = List.Transform(ChoiceColumns, each Text.BeforeDelimiter(_, "_")),
 
-    // Optional: Rename expanded columns to be user-friendly
-    RenamedColumns = Table.RenameColumns(ExpandedChoices, List.Transform(LookupColumns & ChoiceColumns, each {_, Text.BeforeDelimiter(_, "_")}))
+    // Step 5: Expand lookup columns to include GUID and name
+    ExpandedLookups = Table.ExpandTableColumn(
+        Table.TransformColumns(Source, 
+            List.Transform(LookupParentColumns, 
+                each {_, (row) => [GUID = row[_], Name = row[_ & "_name"]]}
+            )
+        ), 
+        LookupParentColumns, {"GUID", "Name"}
+    ),
+
+    // Step 6: Expand choice columns to include key and label
+    ExpandedChoices = Table.ExpandTableColumn(
+        Table.TransformColumns(ExpandedLookups, 
+            List.Transform(ChoiceParentColumns, 
+                each {_, (row) => [Key = row[_], Label = row[_ & "_label"]]}
+            )
+        ), 
+        ChoiceParentColumns, {"Key", "Label"}
+    )
 in
-    RenamedColumns
+    ExpandedChoices
